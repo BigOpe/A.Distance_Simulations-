@@ -26,6 +26,8 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from sklearn.cluster import AgglomerativeClustering
+from sklearn.metrics import silhouette_score
 
 HERE = Path(__file__).resolve().parent
 ALPHAS = [1.0, 2.0, 3.0, 5.0, 10.0]
@@ -114,16 +116,29 @@ def main(alpha=3.0, weights=None, traits_file=None, out_root=None, tag="", top=3
     fig.savefig(figdir / ("Fig_ranking_comparison%s.png" % suf), dpi=300)
     plt.close(fig)
 
-    ranks = {}
+    ranks, sils = {}, {}
     for a in ALPHAS:
         dd = directional_to_ideal(X, ideal, w, a)
         ranks[a] = pd.Series(dd).rank(method="min").to_numpy()
+        # cluster stability: hierarchical K=3 on symmetrised AD, silhouette
+        Dd = np.zeros((len(X), len(X)))
+        for i in range(len(X)):
+            d = X[i].reshape(1, -1) - X
+            Dd[i] = np.sum(w * (1 + (a - 1.0) * (d < 0)) * d ** 2, axis=1)
+        S = 0.5 * (Dd + Dd.T)
+        np.fill_diagonal(S, 0.0)
+        lab = AgglomerativeClustering(n_clusters=3, metric="precomputed",
+                                      linkage="average").fit_predict(S)
+        sils[a] = round(float(silhouette_score(S, lab, metric="precomputed")), 4) \
+            if len(np.unique(lab)) > 1 else float("nan")
     R = pd.DataFrame(ranks, index=strains)
     R.columns = ["rank_a%s" % (str(a).replace(".", "p")) for a in ALPHAS]
     sens = pd.DataFrame({"Strain": list(R.index),
                          "mean_rank": R.mean(axis=1).to_numpy().round(2),
                          "sd_rank": R.std(axis=1).to_numpy().round(2)})
     sens = pd.concat([sens, R.reset_index(drop=True)], axis=1)
+    sens["sil_alpha3"] = round(sils.get(3.0, float("nan")), 4)
+    sens["sil_mean"] = round(float(np.nanmean(list(sils.values()))), 4)
     sens = sens.sort_values("mean_rank").reset_index(drop=True)
     sens.to_csv(resdir / ("sensitivity_table%s_full.csv" % suf), index=False)
     short = sens.head(top).drop(columns=[c for c in sens.columns if c.startswith("rank_a")])
