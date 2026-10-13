@@ -1,0 +1,5 @@
+deficit_ratio,spearman_vs_symmetric,top10_overlap
+1,1.0,10
+2,0.9979,9
+5,0.9972,9
+10,0.997,9
